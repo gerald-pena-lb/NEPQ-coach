@@ -4,8 +4,8 @@ import { NEPQ_SYSTEM_PROMPT } from '@/lib/salesFramework';
 
 const anthropic = new Anthropic();
 
-// Models: Opus 4.6 for all suggestion paths
-const MODEL_FAST = 'claude-opus-4-6';
+// Models: Sonnet for speed on main paths, Opus only for Go Deeper (quality matters more there)
+const MODEL_FAST = 'claude-sonnet-4-6';
 const MODEL_DEEP = 'claude-opus-4-6';
 
 // System prompt with caching — the large NEPQ prompt is reused across every request.
@@ -77,11 +77,17 @@ function enforceSingleQuestion(text) {
   return trimmed.slice(0, firstQ + 1).trim();
 }
 
-// Shorter analysis instructions — trimmed to save output tokens without losing behavior
-const WHOLE_CONTEXT_INSTRUCTIONS = `
+// Jeremy speaks as if HE is the one on the call — not a sideline coach
+const CONVERSATION_FRAMING = `
 
-## HOW TO ANALYZE
-Read the ENTIRE transcript above. Identify themes, what's been revealed, what's missing for the current stage. Pick the single best NEPQ move. Reference the prospect's exact words. Never repeat a question. Output JSON only.`;
+## HOW TO THINK ABOUT THIS
+You ARE the setter. This is YOUR conversation with the prospect. Everything the setter has said in the transcript — treat it as YOUR words. The prospect is talking to YOU.
+
+Read the ENTIRE transcript as if you're recalling your own conversation from memory. What have YOU already asked? What has the prospect told YOU? What thread are YOU currently pulling? What would YOU naturally say next — as someone who has been in this conversation the whole time, not someone who just overheard the last sentence?
+
+Your suggestion should sound like the next natural thing YOU would say — not advice from a coach on the sideline. If the setter said something different from what you would have said, adapt: adopt what they said as your own and continue from there.
+
+Never repeat a question. Reference the prospect's exact words. Output JSON only.`;
 
 export async function POST(request) {
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -115,7 +121,7 @@ export async function POST(request) {
       buildConversationContext(conversationHistory, repCalibration, currentStage);
 
     if (goDeeper && previousSuggestion) {
-      const userMessage = `FULL CONVERSATION TRANSCRIPT (chronological, numbered):\n${historyText}${calibrationContext}${stageContext}\n\nThe previous suggestion was:\n"${previousSuggestion}"\n\nThat suggestion was too surface-level. Generate a deeper follow-up that references the prospect's exact words, pushes past the logical layer into emotional core, and does NOT repeat anything already asked.${WHOLE_CONTEXT_INSTRUCTIONS}`;
+      const userMessage = `HERE IS YOUR CONVERSATION SO FAR (you are the setter, this is your call):\n${historyText}${calibrationContext}${stageContext}\n\nYou just considered saying:\n"${previousSuggestion}"\n\nBut that's too surface-level for where you are in the conversation. Go deeper. What would you REALLY say next — something that takes what the prospect told you and pushes past the logical layer into the emotional truth? Use their exact words. Don't repeat anything you've already asked.${CONVERSATION_FRAMING}`;
 
       const message = await anthropic.messages.create({
         model: MODEL_DEEP,
@@ -129,7 +135,7 @@ export async function POST(request) {
     }
 
     if (pregenerate) {
-      const userMessage = `FULL CONVERSATION TRANSCRIPT (chronological, numbered):\n${historyText}${calibrationContext}${stageContext}\n\nGenerate exactly 2 different coaching suggestions ranked by relevance (priority 1 = best). Each must reference specific things the prospect said. Do NOT repeat questions. Take different angles.${WHOLE_CONTEXT_INSTRUCTIONS}`;
+      const userMessage = `HERE IS YOUR CONVERSATION SO FAR (you are the setter, this is your call):\n${historyText}${calibrationContext}${stageContext}\n\nYou're about to speak. Prepare 2 different things you might say next, ranked by which feels most natural for where the conversation is right now (priority 1 = best). Each must reference specific things the prospect told you. Don't repeat anything you already asked. Take different angles.${CONVERSATION_FRAMING}`;
 
       const message = await anthropic.messages.create({
         model: MODEL_FAST,
@@ -183,7 +189,7 @@ export async function POST(request) {
     }
 
     // Standard single-suggestion mode (on-demand fallback)
-    const userMessage = `FULL CONVERSATION TRANSCRIPT (chronological, numbered):\n${historyText}${calibrationContext}${stageContext}\n\nThe setter just tapped SUGGEST. Based on the ENTIRE conversation, suggest the single best thing the setter should say next.${WHOLE_CONTEXT_INSTRUCTIONS}`;
+    const userMessage = `HERE IS YOUR CONVERSATION SO FAR (you are the setter, this is your call):\n${historyText}${calibrationContext}${stageContext}\n\nThe prospect just finished speaking. What would you say next? This should feel like the natural continuation of YOUR conversation — not advice from someone listening in.${CONVERSATION_FRAMING}`;
 
     const message = await anthropic.messages.create({
       model: MODEL_FAST,
